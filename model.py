@@ -834,6 +834,55 @@ class TwoStageLoadModel:
         )
         self.level_feature_cols = _level_feature_columns()
         self.shape_feature_cols = _shape_feature_columns()
+        self._level_fill_values = pd.Series(dtype=float)
+        self._shape_fill_values = pd.Series(dtype=float)
+        self._level_constant = np.nan
+        self._shape_constant = np.nan
+
+    @staticmethod
+    def _prepare_numeric_features(frame, feature_cols):
+        """Make sklearn inputs finite and consistently numeric."""
+        prepared = frame[feature_cols].apply(pd.to_numeric, errors="coerce")
+        return prepared.replace([np.inf, -np.inf], np.nan)
+
+    @classmethod
+    def _fit_safe_regressor(cls, estimator, frame, feature_cols, target):
+        """Fit HGB without allowing all-null or constant columns to break binning."""
+        features = cls._prepare_numeric_features(frame, feature_cols)
+        target = pd.to_numeric(target, errors="coerce")
+        valid_target = target.notna() & np.isfinite(target)
+        features = features.loc[valid_target].reset_index(drop=True)
+        target = target.loc[valid_target].reset_index(drop=True)
+
+        fill_values = features.median(axis=0).fillna(0.0)
+        features = features.fillna(fill_values)
+        active_cols = [
+            col for col in feature_cols
+            if features[col].nunique(dropna=False) > 1
+        ]
+
+        if not active_cols:
+            constant = float(target.mean()) if len(target) else 0.0
+            return None, active_cols, fill_values, constant
+
+        estimator.fit(features[active_cols], target)
+        return estimator, active_cols, fill_values, np.nan
+
+    @classmethod
+    def _predict_safe_regressor(
+        cls,
+        estimator,
+        frame,
+        active_cols,
+        fill_values,
+        constant,
+    ):
+        if estimator is None:
+            return np.full(len(frame), constant, dtype=float)
+
+        features = cls._prepare_numeric_features(frame, active_cols)
+        features = features.fillna(fill_values.reindex(active_cols).fillna(0.0))
+        return estimator.predict(features[active_cols])
 
     def fit(self, X, y):
         frame = X.copy()
@@ -841,10 +890,30 @@ class TwoStageLoadModel:
         frame["date"] = pd.to_datetime(frame["date"]).dt.normalize()
 
         level_frame = self._build_level_frame(frame)
-        self.level_model.fit(level_frame[self.level_feature_cols], level_frame["actual_day_mean"])
+        (
+            self.level_model,
+            self.level_feature_cols,
+            self._level_fill_values,
+            self._level_constant,
+        ) = self._fit_safe_regressor(
+            self.level_model,
+            level_frame,
+            self.level_feature_cols,
+            level_frame["actual_day_mean"],
+        )
 
         shape_frame = self._build_shape_frame(frame)
-        self.shape_model.fit(shape_frame[self.shape_feature_cols], shape_frame["shape_ratio"])
+        (
+            self.shape_model,
+            self.shape_feature_cols,
+            self._shape_fill_values,
+            self._shape_constant,
+        ) = self._fit_safe_regressor(
+            self.shape_model,
+            shape_frame,
+            self.shape_feature_cols,
+            shape_frame["shape_ratio"],
+        )
 
         return self
 
@@ -854,7 +923,13 @@ class TwoStageLoadModel:
 
         level_frame = self._build_level_frame(frame)
         level_predictions = level_frame[["date"]].copy()
-        level_predictions["pred_day_mean_model"] = self.level_model.predict(level_frame[self.level_feature_cols])
+        level_predictions["pred_day_mean_model"] = self._predict_safe_regressor(
+            self.level_model,
+            level_frame,
+            self.level_feature_cols,
+            self._level_fill_values,
+            self._level_constant,
+        )
 
         lag_day_mean_cols = [
             "lag_6d_day_mean",
@@ -891,7 +966,13 @@ class TwoStageLoadModel:
 
         frame = frame.merge(level_predictions[["date", "pred_day_mean"]], on="date", how="left")
         shape_frame = self._build_shape_frame(frame)
-        shape_frame["shape_ratio_pred"] = self.shape_model.predict(shape_frame[self.shape_feature_cols])
+        shape_frame["shape_ratio_pred"] = self._predict_safe_regressor(
+            self.shape_model,
+            shape_frame,
+            self.shape_feature_cols,
+            self._shape_fill_values,
+            self._shape_constant,
+        )
         shape_frame["shape_ratio_pred"] = shape_frame["shape_ratio_pred"].clip(lower=0.35, upper=1.75)
 
         shape_anchor = _coalesce_columns(
