@@ -1,0 +1,31 @@
+# Local source data is intentionally kept out of the public repository.
+data/*
+!data/README.md
+
+# Generated evaluation tables contain actual load values and stay local.
+results.csv
+segment_*_daily_profile.csv
+segment_*_backtest_summary.csv
+segment_*_day_summary.csv
+segment_*_slot_predictions.csv
+zigzag_pairavg_two_stage_*.csv
+
+# Local forecast outputs and service runtime state.
+artifacts/forecasts/
+artifacts/test_forecasts/
+artifacts/runtime/
+
+# Python and local environment files.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Notebook checkpoints and editor metadata.
+.ipynb_checkpoints/
+.vscode/
+.idea/

@@ -1,0 +1,23 @@
+.git
+__pycache__/
+*.pyc
+*.pyo
+*.log
+*.ipynb
+results.csv
+daily_mape.png
+raw_consumption_comparison.png
+daily_consumption_summary.png
+daily_consumption_heatmap.png
+daily mean consumption.png
+march_regime_profiles.png
+march_14_19_vs_jan09_mar13_comparison.png
+segment_20260109_20260313_daily_stats.png
+segment_20260109_20260313_heatmap.png
+segment_20260109_20260313_normalized_shape.png
+zigzag_segment_pairavg_smoothing_examples.png
+zigzag_segment_residual_template.png
+zigzag_segment_residual_overlay.png
+zigzag_pairavg_two_stage_daily_mape.png
+zigzag_pairavg_two_stage_examples.png
+*.zip
